@@ -35,10 +35,20 @@ struct NotchPrompterApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let viewModel = PrompterViewModel()
     private var prompterWindow: PrompterWindow!
+    private var fileWatcher: PrompterFileWatcher?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         prompterWindow = PrompterWindow(viewModel: viewModel)
         NSApp.setActivationPolicy(.accessory)
+
+        // Live external text source: when the watched file changes, swap the
+        // prompter script and scroll back to the top — no focus stealing.
+        fileWatcher = PrompterFileWatcher { [weak self] text in
+            guard let self else { return }
+            self.viewModel.text = text
+            self.viewModel.reset()
+        }
+        fileWatcher?.start()
     }
 }
 
