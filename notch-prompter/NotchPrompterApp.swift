@@ -42,10 +42,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // Live external text source: when the watched file changes, swap the
-        // prompter script and scroll back to the top — no focus stealing.
-        fileWatcher = PrompterFileWatcher { [weak self] text in
+        // prompter script. Payload may be plain text, or JSON {text, autoplay}.
+        fileWatcher = PrompterFileWatcher { [weak self] raw in
             guard let self else { return }
-            self.viewModel.text = text
+            // JSON payload {text?, autoplay?, command?} — or plain text.
+            if let data = raw.data(using: .utf8),
+               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let cmd = obj["command"] as? String {
+                    switch cmd {
+                    case "pause": self.viewModel.pauseInPlace()
+                    case "play", "resume": self.viewModel.resume()
+                    case "toggle": self.viewModel.togglePlay()
+                    case "reset": self.viewModel.reset()
+                    default: break
+                    }
+                }
+                if let t = obj["text"] as? String {
+                    self.viewModel.text = t
+                    if (obj["autoplay"] as? Bool) ?? false { self.viewModel.play() } else { self.viewModel.reset() }
+                }
+                return
+            }
+            self.viewModel.text = raw
             self.viewModel.reset()
         }
         fileWatcher?.start()

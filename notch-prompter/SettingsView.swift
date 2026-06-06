@@ -236,35 +236,7 @@ struct AppearanceTabView: View {
                             Button {
                                 viewModel.fontDesign = design
                             } label: {
-                                VStack(spacing: 4) {
-                                    Text(design.icon)
-                                        .font(design.previewFont)
-                                    Text(design.displayLocalizedName)
-                                        .font(.system(size: 11))
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                                .background(
-                                    viewModel.fontDesign == design
-                                        ? Color.accentColor.opacity(0.15)
-                                        : Color(NSColor.controlBackgroundColor)
-                                )
-                                .foregroundStyle(
-                                    viewModel.fontDesign == design
-                                        ? Color.accentColor
-                                        : .primary
-                                )
-                                .contentShape(Rectangle())
-                                .clipShape(RoundedRectangle(cornerRadius: 6))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .strokeBorder(
-                                            viewModel.fontDesign == design
-                                                ? Color.accentColor
-                                                : Color.primary.opacity(0.2),
-                                            lineWidth: 1
-                                        )
-                                )
+                                FontDesignCell(design: design, isSelected: viewModel.fontDesign == design)
                             }
                             .buttonStyle(.plain)
                         }
@@ -344,6 +316,29 @@ struct AppearanceTabView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+
+                SettingSlider(
+                    label: "Opacity",
+                    value: $viewModel.opacity,
+                    range: 0.2...1.0,
+                    step: 0.05,
+                    unit: ""
+                )
+
+                HStack(alignment: .top, spacing: 10) {
+                    Toggle("", isOn: $viewModel.showTimer)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Show session timer")
+                            .font(.system(size: 13, weight: .medium))
+                        Text("Counts up while playing; zeroes on Reset")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
                 Divider()
 
@@ -573,7 +568,7 @@ struct LayoutTabView: View {
                         get: { Double(viewModel.prompterWidth) },
                         set: { viewModel.prompterWidth = CGFloat($0) }
                     ),
-                    range: 150...600,
+                    range: 150...2000,
                     step: 10,
                     unit: "px"
                 )
@@ -584,7 +579,7 @@ struct LayoutTabView: View {
                         get: { Double(viewModel.prompterHeight) },
                         set: { viewModel.prompterHeight = CGFloat($0) }
                     ),
-                    range: 80...500,
+                    range: 80...900,
                     step: 10,
                     unit: "px"
                 )
@@ -706,6 +701,12 @@ struct KeyboardTabView: View {
                             icon: "play.fill",
                             title: "Play / Pause",
                             shortcut: "⌃ + ⌥ + p"
+                        )
+
+                        ShortcutRow(
+                            icon: "xmark.circle",
+                            title: "Quit NotchPrompter",
+                            shortcut: "⌃ + ⌥ + q"
                         )
 
                         ShortcutRow(

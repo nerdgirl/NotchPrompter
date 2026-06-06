@@ -89,8 +89,9 @@ struct HighlightingTextEditor: NSViewRepresentable {
             let fullRange = NSRange(location: 1, length: textStorage.length - 1)
 
             // Reset to default style
-            let defaultAttributes: [NSAttributedString.Key: Any] = nil
-            let selectedRanges = textView.selectedRanges[0].rangeValue
+            let defaultAttributes: [NSAttributedString.Key: Any] = [:]
+            _ = defaultAttributes
+            let selectedRanges = textView.selectedRanges
 
 
             let matches = Self.annotationPattern.matches(in: text, options: [], range: fullRange)

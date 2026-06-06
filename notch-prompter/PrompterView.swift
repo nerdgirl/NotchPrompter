@@ -203,6 +203,25 @@ struct PrompterContentView: View {
                 }
             }
 
+            // Session timer (top-right)
+            if viewModel.showTimer {
+                VStack {
+                    HStack {
+                        Spacer()
+                        Text(viewModel.timerText)
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.black.opacity(0.45))
+                            .clipShape(Capsule())
+                            .padding(8)
+                    }
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+            }
+
             // Progress bar on the right side
             if viewModel.showProgressBar {
                 HStack {

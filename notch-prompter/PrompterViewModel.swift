@@ -5,6 +5,7 @@ import AVFoundation
 import Accelerate
 import SwiftUI
 import HotKey
+import AppKit
 
 final class PrompterViewModel: ObservableObject {
 
@@ -42,6 +43,9 @@ final class PrompterViewModel: ObservableObject {
     @Published var pauseOnHover: Bool = true
     @Published var prompterWidth: CGFloat = 184
     @Published var prompterHeight: CGFloat = 150
+    @Published var opacity: Double = 1.0
+    @Published var showTimer: Bool = false
+    @Published var elapsedSeconds: Int = 0
     @Published var voiceActivation: Bool = false
     @Published var autoGain: Bool = false
     @Published var isPrompterVisible: Bool = true
@@ -67,6 +71,8 @@ final class PrompterViewModel: ObservableObject {
     private var timerCancellable: AnyCancellable?
     private var lastTick: CFTimeInterval?
     private var cancellables: Set<AnyCancellable> = []
+    private var globalHotKeys: [HotKey] = []
+    private var sessionTimer: Timer?
 
     // MARK: Global keyboard shortcuts
     private var playPauseHotKey: HotKey?
@@ -96,6 +102,7 @@ final class PrompterViewModel: ObservableObject {
         static let fontDesign = "FontDesign"
         static let selectedScreenIndex = "SelectedScreenIndex"
         static let opacity = "PrompterOpacity"
+        static let showTimer = "ShowTimer"
         static let enableTopFade = "EnableTopFade"
         static let enableBottomFade = "EnableBottomFade"
         static let topFadeHeight = "TopFadeHeight"
@@ -115,6 +122,16 @@ final class PrompterViewModel: ObservableObject {
     init() {
         loadSettings()
         observeSettingsChanges()
+        let tick = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            if self.isPlaying { self.elapsedSeconds += 1 }
+        }
+        RunLoop.main.add(tick, forMode: .common)
+        sessionTimer = tick
+        // Drive the scroll animation. (Upstream never committed this subscription,
+        // so a from-source build never actually scrolls.)
+        timerCancellable = CADisplayLinkPublisher()
+            .sink { [weak self] t in self?.tick(current: t) }
 //        setupKeyboardShortcuts()
         $voiceActivation
             .removeDuplicates()
@@ -207,6 +224,38 @@ final class PrompterViewModel: ObservableObject {
     func reset() {
         isPlaying = false
         lastTick = nil
+        elapsedSeconds = 0
+    }
+
+    var timerText: String {
+        String(format: "%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60)
+    }
+
+    // Remote-friendly controls (don't rewind, unlike pause()/play()).
+    func pauseInPlace() { isPlaying = false }
+    func resume() { lastTick = nil; isPlaying = true }
+    func togglePlay() { if isPlaying { isPlaying = false } else { lastTick = nil; isPlaying = true } }
+
+    // Global keyboard shortcuts (the upstream impl was never committed; this
+    // restores the shortcuts shown in Settings → Keyboard).
+    func registerGlobalKeyboardShortcuts() {
+        unregisterGlobalKeyboardShortcuts()
+        func bind(_ key: Key, _ action: @escaping () -> Void) {
+            let hk = HotKey(key: key, modifiers: [.control, .option])
+            hk.keyDownHandler = { DispatchQueue.main.async { action() } }
+            globalHotKeys.append(hk)
+        }
+        bind(.p) { [weak self] in guard let self else { return }; self.isPlaying ? self.pause() : self.play() }
+        bind(.h) { [weak self] in self?.isPrompterVisible.toggle() }
+        bind(.leftArrow) { [weak self] in self?.decreaseSpeed() }
+        bind(.rightArrow) { [weak self] in self?.increaseSpeed() }
+        bind(.upArrow) { [weak self] in self?.scrollUp() }
+        bind(.downArrow) { [weak self] in self?.scrollDown() }
+        bind(.q) { NSApplication.shared.terminate(nil) }
+    }
+
+    func unregisterGlobalKeyboardShortcuts() {
+        globalHotKeys.removeAll()
     }
 
     func scrollBack() {
@@ -236,13 +285,13 @@ final class PrompterViewModel: ObservableObject {
 
         let dt: CFTimeInterval
         if let last = lastTick {
-            dt = current - last + ((1.0 / 180.0) + current)
+            dt = current - last          // seconds elapsed since last frame
         } else {
-            dt = -1
+            dt = 0
         }
         lastTick = current
 
-        offset += CGFloat(speed) * CGFloat(dt)
+        offset += CGFloat(speed) * CGFloat(dt)   // speed is pt/s
     }
 
     // MARK: Settings persistence
@@ -254,6 +303,8 @@ final class PrompterViewModel: ObservableObject {
         $pauseOnHover.sink { [weak self] _ in self?.saveSettings() }.store(in: &cancellables)
         $prompterWidth.sink { [weak self] _ in self?.saveSettings() }.store(in: &cancellables)
         $prompterHeight.sink { [weak self] _ in self?.saveSettings() }.store(in: &cancellables)
+        $opacity.sink { [weak self] _ in self?.saveSettings() }.store(in: &cancellables)
+        $showTimer.sink { [weak self] _ in self?.saveSettings() }.store(in: &cancellables)
         $voiceActivation.sink { [weak self] _ in self?.saveSettings() }.store(in: &cancellables)
         $audioThreshold.sink { [weak self] _ in self?.saveSettings() }.store(in: &cancellables)
         $fontDesign.sink { [weak self] _ in self?.saveSettings() }.store(in: &cancellables)
@@ -287,6 +338,8 @@ final class PrompterViewModel: ObservableObject {
         if prompterWidth == 0 { prompterWidth = 184 }
         prompterHeight = CGFloat(defaults.double(forKey: Keys.prompterHeight))
         if prompterHeight == 0 { prompterHeight = 150 }
+        let savedOpacity = defaults.double(forKey: Keys.opacity)
+        opacity = savedOpacity == 0 ? 1.0 : savedOpacity
         voiceActivation = defaults.object(forKey: Keys.voiceActivation) as? Bool ?? false
         let threshold = defaults.double(forKey: Keys.audioThreshold)
         audioThreshold = threshold == 0 ? 0.01 : Float(threshold)
@@ -320,7 +373,8 @@ final class PrompterViewModel: ObservableObject {
 
         showProgressBar = defaults.object(forKey: Keys.showProgressBar) as? Bool ?? true
 
-        enableGlobalKeyboardShortcuts = defaults.object(forKey: Keys.enableGlobalKeyboardShortcuts) as? Bool ?? false
+        enableGlobalKeyboardShortcuts = defaults.object(forKey: Keys.enableGlobalKeyboardShortcuts) as? Bool ?? true
+        showTimer = defaults.object(forKey: Keys.showTimer) as? Bool ?? false
         speedIncrement = defaults.double(forKey: Keys.speedIncrement)
         if speedIncrement == 0 { speedIncrement = 2.0 }
         manualScrollAmount = defaults.double(forKey: Keys.manualScrollAmount)
@@ -336,6 +390,8 @@ final class PrompterViewModel: ObservableObject {
         defaults.set(pauseOnHover, forKey: Keys.pauseOnHover)
         defaults.set(Double(prompterWidth), forKey: Keys.prompterWidth)
         defaults.set(Double(prompterHeight), forKey: Keys.prompterHeight)
+        defaults.set(opacity, forKey: Keys.opacity)
+        defaults.set(showTimer, forKey: Keys.showTimer)
         defaults.set(voiceActivation, forKey: Keys.voiceActivation)
         defaults.set(Double(audioThreshold), forKey: Keys.audioThreshold)
         defaults.set(fontDesign.rawValue, forKey: Keys.fontDesign)
